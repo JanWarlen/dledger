@@ -68,15 +68,15 @@ public class DLedgerLeaderElector {
     //as a server handler
     //record the last leader state
     /**
-     * 上次收到心跳包的时间戳
+     * 上次收到Leader心跳包的时间戳
      */
     private volatile long lastLeaderHeartBeatTime = -1;
     /**
-     * 上次发送心跳包的时间戳
+     * 上次Leader发送心跳包的时间戳
      */
     private volatile long lastSendHeartBeatTime = -1;
     /**
-     * 上次成功收到心跳包的时间戳
+     * 上次Leader成功完成心跳的时间戳
      */
     private volatile long lastSuccHeartBeatTime = -1;
     /**
@@ -343,12 +343,15 @@ public class DLedgerLeaderElector {
                             succNum.incrementAndGet();
                             break;
                         case EXPIRED_TERM:
+                            // Follower 节点投票轮次高于本节点，可能是Follower节点触发了选举
                             maxTerm.set(x.getTerm());
                             break;
                         case INCONSISTENT_LEADER:
+                            // Follower节点的LeaderID和本节点ID不一致（投票轮次相同）
                             inconsistLeader.compareAndSet(false, true);
                             break;
                         case TERM_NOT_READY:
+                            // Follower节点的投票轮次落后
                             notReadyNum.incrementAndGet();
                             break;
                         default:
@@ -387,6 +390,7 @@ public class DLedgerLeaderElector {
             } else if (inconsistLeader.get()) {
                 changeRoleToCandidate(term);
             } else if (DLedgerUtils.elapsed(lastSuccHeartBeatTime) > maxHeartBeatLeak * heartBeatTimeIntervalMs) {
+                // 超过限定的时间内没能成功心跳，重新选举
                 changeRoleToCandidate(term);
             }
         }
@@ -412,8 +416,10 @@ public class DLedgerLeaderElector {
 
     private void maintainAsFollower() {
         if (DLedgerUtils.elapsed(lastLeaderHeartBeatTime) > 2 * heartBeatTimeIntervalMs) {
+            // 限定时间内没有收到心跳包
             synchronized (memberState) {
                 if (memberState.isFollower() && (DLedgerUtils.elapsed(lastLeaderHeartBeatTime) > maxHeartBeatLeak * heartBeatTimeIntervalMs)) {
+                    // 最大限度内如果没有收到心跳包，认定Leader下线，重新选举
                     logger.info("[{}][HeartBeatTimeOut] lastLeaderHeartBeatTime: {} heartBeatTimeIntervalMs: {} lastLeader={}", memberState.getSelfId(), new Timestamp(lastLeaderHeartBeatTime), heartBeatTimeIntervalMs, memberState.getLeaderId());
                     changeRoleToCandidate(memberState.currTerm());
                 }
