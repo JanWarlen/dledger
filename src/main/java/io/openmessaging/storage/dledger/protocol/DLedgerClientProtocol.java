@@ -20,13 +20,32 @@ import java.util.concurrent.CompletableFuture;
 
 /**
  * Both the RaftLogServer(inbound) and RaftRpcService (outbound) should implement this protocol
+ * DLedger 客户端协议，核心 get/append/metadata
  */
 public interface DLedgerClientProtocol {
 
+    /**
+     * 客户端从服务器获取日志条目（获取数据）
+     * @param request
+     * @return
+     * @throws Exception
+     */
     CompletableFuture<GetEntriesResponse> get(GetEntriesRequest request) throws Exception;
 
+    /**
+     * 客户端向服务器追加日志（存储数据）
+     * @param request
+     * @return
+     * @throws Exception
+     */
     CompletableFuture<AppendEntryResponse> append(AppendEntryRequest request) throws Exception;
 
+    /**
+     * 获取元数据
+     * @param request
+     * @return
+     * @throws Exception
+     */
     CompletableFuture<MetadataResponse> metadata(MetadataRequest request) throws Exception;
 
     CompletableFuture<LeadershipTransferResponse> leadershipTransfer(LeadershipTransferRequest request) throws Exception;

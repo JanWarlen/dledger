@@ -34,6 +34,10 @@ public class MmapFileList {
     public static final int MIN_BLANK_LEN = 8;
     public static final int BLANK_MAGIC_CODE = -1;
     private static Logger logger = LoggerFactory.getLogger(MmapFile.class);
+    /**
+     * 一批最多可删除的文件数量
+     * 未看到修改，应该是默认固定 一次最多可删除10个
+     */
     private static final int DELETE_FILES_BATCH_MAX = 10;
     private final String storePath;
 
@@ -95,6 +99,10 @@ public class MmapFileList {
         return this.mappedFiles.toArray();
     }
 
+    /**
+     * 从所有文件头部开始清除，直到 offset 为止
+     * @param offset
+     */
     public void truncateOffset(long offset) {
         Object[] mfs = this.copyMappedFiles();
         if (mfs == null) {
@@ -104,13 +112,16 @@ public class MmapFileList {
 
         for (int i = 0; i < mfs.length; i++) {
             MmapFile file = (MmapFile) mfs[i];
+            // 文件最大序列
             long fileTailOffset = file.getFileFromOffset() + this.mappedFileSize;
             if (fileTailOffset > offset) {
                 if (offset >= file.getFileFromOffset()) {
+                    // offset 在当前文件内
                     file.setWrotePosition((int) (offset % this.mappedFileSize));
                     file.setCommittedPosition((int) (offset % this.mappedFileSize));
                     file.setFlushedPosition((int) (offset % this.mappedFileSize));
                 } else {
+                    // 在 offset 之前的文件
                     willRemoveFiles.add(file);
                 }
             }
@@ -200,12 +211,19 @@ public class MmapFileList {
         }
         int blank = useBlank ? MIN_BLANK_LEN : 0;
         if (len + blank > mappedFile.getFileSize() - mappedFile.getWrotePosition()) {
+            // 该条日志超过了当前文件的最大存储限制（剩余大小不够）
             if (blank < MIN_BLANK_LEN) {
+                // 从 blank 的赋值来看，很难理解这里的判断条件，为什么不直接用 useBlank
                 logger.error("Blank {} should ge {}", blank, MIN_BLANK_LEN);
                 return -1;
             } else {
+                // 文件剩余大小已经不够，需要创建新的文件存储数据
+                // 此时需要将当前待完结的文件写入 BLANK_MAGIC_CODE（4字节）+ 该文件剩余字节数（4字节）
+                // 申请新的缓冲区
                 ByteBuffer byteBuffer = ByteBuffer.allocate(mappedFile.getFileSize() - mappedFile.getWrotePosition());
+                // 写入 BLANK_MAGIC_CODE
                 byteBuffer.putInt(BLANK_MAGIC_CODE);
+                // 该文件剩余字节数
                 byteBuffer.putInt(mappedFile.getFileSize() - mappedFile.getWrotePosition());
                 if (mappedFile.appendMessage(byteBuffer.array())) {
                     //need to set the wrote position
@@ -221,6 +239,7 @@ public class MmapFileList {
                 }
             }
         }
+        // 一切正常的情况下，日志追加就是在最新的文件末尾添加，pos也从此计算
         return mappedFile.getFileFromOffset() + mappedFile.getWrotePosition();
 
     }
@@ -264,13 +283,17 @@ public class MmapFileList {
             while (iterator.hasNext()) {
                 MmapFile cur = iterator.next();
                 if (!this.mappedFiles.contains(cur)) {
+                    // 去除已经不在内存映射中的
                     iterator.remove();
                     logger.info("This mappedFile {} is not contained by mappedFiles, so skip it.", cur.getFileName());
                 }
             }
 
             try {
+                // 从内存中删除
                 if (!this.mappedFiles.removeAll(files)) {
+                    // 并没有触发 MmapFile 的 destroy
+                    // 不知道为什么从内存映射删除就不管物理文件了
                     logger.error("deleteExpiredFiles remove failed.");
                 }
             } catch (Exception e) {
@@ -418,6 +441,14 @@ public class MmapFileList {
         }
     }
 
+    /**
+     *
+     * @param expiredTime 文件保存时间，文件存在时间超过该时间的都属于失效文件
+     * @param deleteFilesInterval 删除文件的间隔等待时间，大于0生效
+     * @param intervalForcibly
+     * @param cleanImmediately 是否可以强制清除
+     * @return
+     */
     public int deleteExpiredFileByTime(final long expiredTime,
         final int deleteFilesInterval,
         final long intervalForcibly,
@@ -434,8 +465,10 @@ public class MmapFileList {
         if (null != mfs) {
             for (int i = 0; i < mfsLength; i++) {
                 MmapFile mappedFile = (MmapFile) mfs[i];
+                // 计算该文件最大可存活到的时间戳
                 long liveMaxTimestamp = mappedFile.getLastModifiedTimestamp() + expiredTime;
                 if (System.currentTimeMillis() >= liveMaxTimestamp || cleanImmediately) {
+                    // 当前已经超过可以存活的时间 或者 当前磁盘告警并且允许强制清除
                     if (mappedFile.destroy(intervalForcibly)) {
                         files.add(mappedFile);
                         deleteCount++;
@@ -460,6 +493,7 @@ public class MmapFileList {
             }
         }
 
+        // 集中删除过期文件，或者磁盘告急时的紧急避险
         deleteExpiredFiles(files);
 
         return deleteCount;

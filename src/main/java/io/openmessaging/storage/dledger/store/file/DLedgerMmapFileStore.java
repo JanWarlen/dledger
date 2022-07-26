@@ -39,6 +39,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/**
+ * 基于文件内存映射机制的存储实现
+ */
 public class DLedgerMmapFileStore extends DLedgerStore {
 
     public static final String CHECK_POINT_FILE = "checkpoint";
@@ -50,24 +53,76 @@ public class DLedgerMmapFileStore extends DLedgerStore {
 
     private static Logger logger = LoggerFactory.getLogger(DLedgerMmapFileStore.class);
     public List<AppendHook> appendHooks = new ArrayList<>();
+    /**
+     * 日志起始序号
+     */
     private long ledgerBeginIndex = -1;
+    /**
+     * 日志当前最后的序号
+     * append会在此基础上+1
+     */
     private long ledgerEndIndex = -1;
+    /**
+     * 已提交的序号
+     */
     private long committedIndex = -1;
+    /**
+     *
+     */
     private long committedPos = -1;
+    /**
+     * 当前的最大投票轮次
+     */
     private long ledgerEndTerm;
+    /**
+     * 配置信息
+     */
     private DLedgerConfig dLedgerConfig;
+    /**
+     * 状态机
+     */
     private MemberState memberState;
+    /**
+     * 日志文件的内存映射队列
+     */
     private MmapFileList dataFileList;
+    /***
+     * 索引文件的内存映射文件集合
+     */
     private MmapFileList indexFileList;
+    /**
+     * 本地线程变量，用来缓存索引 ByteBuffer
+     */
     private ThreadLocal<ByteBuffer> localEntryBuffer;
+    /**
+     * 本地线程变量，用来缓存数据索引
+     */
     private ThreadLocal<ByteBuffer> localIndexBuffer;
+    /**
+     * 数据文件刷盘线程
+     */
     private FlushDataService flushDataService;
+    /**
+     * 清除过期日志文件线程
+     */
     private CleanSpaceService cleanSpaceService;
+    /**
+     * 磁盘已满？
+     */
     private volatile boolean isDiskFull = false;
 
+    /**
+     * 上一次检测时间戳
+     */
     private long lastCheckPointTimeMs = System.currentTimeMillis();
 
+    /**
+     * 是否已加载，避免重复加载（初始化）日志文件
+     */
     private AtomicBoolean hasLoaded = new AtomicBoolean(false);
+    /**
+     * 是否已恢复
+     */
     private AtomicBoolean hasRecovered = new AtomicBoolean(false);
 
     private volatile Set<String> fullStorePaths = Collections.emptySet();
@@ -338,33 +393,43 @@ public class DLedgerMmapFileStore extends DLedgerStore {
         PreConditions.check(!isDiskFull, DLedgerResponseCode.DISK_FULL);
         ByteBuffer dataBuffer = localEntryBuffer.get();
         ByteBuffer indexBuffer = localIndexBuffer.get();
+        // 从本地线程缓存中获取 数据buffer 和 索引buffer
         DLedgerEntryCoder.encode(entry, dataBuffer);
         int entrySize = dataBuffer.remaining();
         synchronized (memberState) {
             PreConditions.check(memberState.isLeader(), DLedgerResponseCode.NOT_LEADER, null);
             PreConditions.check(memberState.getTransferee() == null, DLedgerResponseCode.LEADER_TRANSFERRING, null);
             long nextIndex = ledgerEndIndex + 1;
+            // 设置索引
             entry.setIndex(nextIndex);
+            // 设置当前投票轮次
             entry.setTerm(memberState.currTerm());
             entry.setMagic(CURRENT_MAGIC);
             DLedgerEntryCoder.setIndexTerm(dataBuffer, nextIndex, memberState.currTerm(), CURRENT_MAGIC);
+            // 计算当前 entry 在日志文件中的起始 position
             long prePos = dataFileList.preAppend(dataBuffer.remaining());
             entry.setPos(prePos);
             PreConditions.check(prePos != -1, DLedgerResponseCode.DISK_ERROR, null);
             DLedgerEntryCoder.setPos(dataBuffer, prePos);
             for (AppendHook writeHook : appendHooks) {
+                // 触发hook，但是未在当前工程中找到 add 的代码（非test）
                 writeHook.doHook(entry, dataBuffer.slice(), DLedgerEntry.BODY_OFFSET);
             }
+            // 数据写入文件
             long dataPos = dataFileList.append(dataBuffer.array(), 0, dataBuffer.remaining());
             PreConditions.check(dataPos != -1, DLedgerResponseCode.DISK_ERROR, null);
             PreConditions.check(dataPos == prePos, DLedgerResponseCode.DISK_ERROR, null);
+            // 构建索引条目
             DLedgerEntryCoder.encodeIndex(dataPos, entrySize, CURRENT_MAGIC, nextIndex, memberState.currTerm(), indexBuffer);
+            // 索引条目写入
             long indexPos = indexFileList.append(indexBuffer.array(), 0, indexBuffer.remaining(), false);
             PreConditions.check(indexPos == entry.getIndex() * INDEX_UNIT_SIZE, DLedgerResponseCode.DISK_ERROR, null);
             if (logger.isDebugEnabled()) {
                 logger.info("[{}] Append as Leader {} {}", memberState.getSelfId(), entry.getIndex(), entry.getBody().length);
             }
+            // 最新索引更新
             ledgerEndIndex++;
+            // 更新 当前投票轮次
             ledgerEndTerm = memberState.currTerm();
             if (ledgerBeginIndex == -1) {
                 ledgerBeginIndex = ledgerEndIndex;
@@ -392,10 +457,12 @@ public class DLedgerMmapFileStore extends DLedgerStore {
             } catch (Throwable ignored) {
                 existedEntry = false;
             }
+            // 如果目标 entry 存在，则 entry 也要删除。。。
             long truncatePos = existedEntry ? entry.getPos() + entry.getSize() : entry.getPos();
             if (truncatePos != dataFileList.getMaxWrotePosition()) {
                 logger.warn("[TRUNCATE]leaderId={} index={} truncatePos={} != maxPos={}, this is usually happened on the old leader", leaderId, entry.getIndex(), truncatePos, dataFileList.getMaxWrotePosition());
             }
+            // 从头清除，到 truncatePos 为止
             dataFileList.truncateOffset(truncatePos);
             if (dataFileList.getMaxWrotePosition() != truncatePos) {
                 logger.warn("[TRUNCATE] rebuild for data wrotePos: {} != truncatePos: {}", dataFileList.getMaxWrotePosition(), truncatePos);
@@ -408,6 +475,7 @@ public class DLedgerMmapFileStore extends DLedgerStore {
             }
 
             long truncateIndexOffset = entry.getIndex() * INDEX_UNIT_SIZE;
+            // 从头清除到 truncateIndexOffset 为止，即 truncateIndexOffset 之后的数据保留
             indexFileList.truncateOffset(truncateIndexOffset);
             if (indexFileList.getMaxWrotePosition() != truncateIndexOffset) {
                 logger.warn("[TRUNCATE] rebuild for index wrotePos: {} != truncatePos: {}", indexFileList.getMaxWrotePosition(), truncateIndexOffset);
@@ -583,6 +651,7 @@ public class DLedgerMmapFileStore extends DLedgerStore {
         }
         if (newCommittedIndex < this.committedIndex
             || newCommittedIndex < this.ledgerBeginIndex) {
+            // 同步的已经过期了
             logger.warn("[MONITOR]Skip update committed index for new={} < old={} or new={} < beginIndex={}", newCommittedIndex, this.committedIndex, newCommittedIndex, this.ledgerBeginIndex);
             return;
         }
@@ -642,6 +711,9 @@ public class DLedgerMmapFileStore extends DLedgerStore {
         this.flushDataService.shutdown();
     }
 
+    /**
+     * 数据文件刷盘线程
+     */
     class FlushDataService extends ShutdownAbleThread {
 
         public FlushDataService(String name, Logger logger) {
@@ -651,8 +723,10 @@ public class DLedgerMmapFileStore extends DLedgerStore {
         @Override public void doWork() {
             try {
                 long start = System.currentTimeMillis();
+                // 内存映射刷盘
                 DLedgerMmapFileStore.this.dataFileList.flush(0);
                 DLedgerMmapFileStore.this.indexFileList.flush(0);
+                // 结束后一些基础的维护性变量更新
                 long elapsed;
                 if ((elapsed = DLedgerUtils.elapsed(start)) > 500) {
                     logger.info("Flush data cost={} ms", elapsed);
@@ -671,6 +745,9 @@ public class DLedgerMmapFileStore extends DLedgerStore {
         }
     }
 
+    /**
+     * 清除过期日志文件线程
+     */
     class CleanSpaceService extends ShutdownAbleThread {
 
         double storeBaseRatio = DLedgerUtils.getDiskPartitionSpaceUsedPercent(dLedgerConfig.getStoreBaseDir());
@@ -687,6 +764,7 @@ public class DLedgerMmapFileStore extends DLedgerStore {
                 long hourOfMs = 3600L * 1000L;
                 long fileReservedTimeMs = dLedgerConfig.getFileReservedHours() *  hourOfMs;
                 if (fileReservedTimeMs < hourOfMs) {
+                    // 即便配置的文件保存时间小于 1 小时，也按 1小时算，有个限制值
                     logger.warn("The fileReservedTimeMs={} is smaller than hourOfMs={}", fileReservedTimeMs, hourOfMs);
                     fileReservedTimeMs =  hourOfMs;
                 }
@@ -698,6 +776,7 @@ public class DLedgerMmapFileStore extends DLedgerStore {
                 boolean enableForceClean = dLedgerConfig.isEnableDiskForceClean();
                 int intervalForcibly = 120 * 1000;
                 if (timeUp || checkExpired) {
+                    // 此处还是内存映射的删除，并非物理文件删除
                     int count = getDataFileList().deleteExpiredFileByTime(fileReservedTimeMs, 100, intervalForcibly, forceClean && enableForceClean);
                     if (count > 0 || (forceClean && enableForceClean) || isDiskFull) {
                         logger.info("Clean space count={} timeUp={} checkExpired={} forceClean={} enableForceClean={} diskFull={} storeBaseRatio={} dataRatio={}",
@@ -707,6 +786,8 @@ public class DLedgerMmapFileStore extends DLedgerStore {
                         DLedgerMmapFileStore.this.reviseLedgerBeginIndex();
                     }
                 }
+                // 不知道是什么特殊的场景导致这里需要重试删除文件映射的第一个文件
+                // 这里是物理删除
                 getDataFileList().retryDeleteFirstFile(intervalForcibly);
                 waitForRunning(100);
             } catch (Throwable t) {
@@ -715,6 +796,10 @@ public class DLedgerMmapFileStore extends DLedgerStore {
             }
         }
 
+        /**
+         * 是否到了配置的清理时间
+         * @return
+         */
         private boolean isTimeToDelete() {
             String when = DLedgerMmapFileStore.this.dLedgerConfig.getDeleteWhen();
             if (DLedgerUtils.isItTimeToDo(when)) {
@@ -724,6 +809,10 @@ public class DLedgerMmapFileStore extends DLedgerStore {
             return false;
         }
 
+        /**
+         * 当前的数据磁盘占比超过了过期检测阈值，需要检测
+         * @return
+         */
         private boolean isNeedCheckExpired() {
             if (storeBaseRatio > dLedgerConfig.getDiskSpaceRatioToCheckExpired()
                 || dataRatio > dLedgerConfig.getDiskSpaceRatioToCheckExpired()) {
@@ -732,6 +821,10 @@ public class DLedgerMmapFileStore extends DLedgerStore {
             return false;
         }
 
+        /**
+         * 当前数据磁盘占比超过强制清理的阈值，需要强制清理
+         * @return
+         */
         private boolean isNeedForceClean() {
             if (storeBaseRatio > dLedgerConfig.getDiskSpaceRatioToForceClean()
                 || dataRatio > dLedgerConfig.getDiskSpaceRatioToForceClean()) {

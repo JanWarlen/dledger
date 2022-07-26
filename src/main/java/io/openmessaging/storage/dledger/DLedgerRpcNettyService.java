@@ -351,6 +351,7 @@ public class DLedgerRpcNettyService extends DLedgerRpcService {
                 AppendEntryRequest appendEntryRequest = JSON.parseObject(request.getBody(), AppendEntryRequest.class);
                 CompletableFuture<AppendEntryResponse> future = handleAppend(appendEntryRequest);
                 future.whenCompleteAsync((x, y) -> {
+                    // 返回后触发该段代码
                     writeResponse(x, y, request, ctx);
                 }, futureExecutor);
                 break;

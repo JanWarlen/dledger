@@ -19,6 +19,10 @@ package io.openmessaging.storage.dledger;
 import io.openmessaging.storage.dledger.protocol.DLedgerProtocol;
 import io.openmessaging.storage.dledger.protocol.DLedgerProtocolHandler;
 
+/**
+ * DLedger 节点之前的网络通信
+ * 默认基于 Netty 实现，默认实现类为 DLedgerRpcNettyService
+ */
 public abstract class DLedgerRpcService implements DLedgerProtocol, DLedgerProtocolHandler {
 
     public abstract void startup();

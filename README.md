@@ -1,3 +1,32 @@
+## 入口关键类
+### 节点选举
+#### 启动选举维护线程入口
+io.openmessaging.storage.dledger.DLedgerLeaderElector.startup
+#### 内部状态自检入口
+io.openmessaging.storage.dledger.DLedgerLeaderElector.StateMaintainer.doWork
+#### 节点投票发起入口
+io.openmessaging.storage.dledger.DLedgerLeaderElector.voteForQuorumResponses
+#### 节点投票处理入口
+io.openmessaging.storage.dledger.DLedgerLeaderElector.handleVote
+### 节点接收请求集中转发入口
+io.openmessaging.storage.dledger.DLedgerRpcNettyService.processRequest
+### 日志存储
+#### 客户端日志写入请求
+io.openmessaging.storage.dledger.DLedgerServer.handleAppend
+#### 日志转发与处理核心类
+io.openmessaging.storage.dledger.DLedgerEntryPusher.startup
+#### 日志转发入口
+io.openmessaging.storage.dledger.DLedgerEntryPusher.EntryDispatcher.doWork
+#### 从节点接收日志处理入口
+io.openmessaging.storage.dledger.DLedgerServer.handlePush
+#### 日志比较
+##### 主节点发起比较入口
+io.openmessaging.storage.dledger.DLedgerEntryPusher.EntryDispatcher.doCompare
+##### 从节点接收比较请求，处理入口
+io.openmessaging.storage.dledger.DLedgerEntryPusher.EntryHandler.handleDoCompare
+
+
+
 
 ## Introduction
 [![Build Status](https://www.travis-ci.org/openmessaging/dledger.svg?branch=master)](https://www.travis-ci.org/search/dledger) [![Maven Central](https://maven-badges.herokuapp.com/maven-central/io.openmessaging.storage/dledger/badge.svg)](http://search.maven.org/#search%7Cga%7C1%7Copenmessaging-storage-dledger)  [![Coverage Status](https://coveralls.io/repos/github/openmessaging/openmessaging-storage-dledger/badge.svg?branch=master)](https://coveralls.io/github/openmessaging/openmessaging-storage-dledger?branch=master) [![License](https://img.shields.io/badge/license-Apache%202-4EB1BA.svg)](https://www.apache.org/licenses/LICENSE-2.0.html)

@@ -181,9 +181,13 @@ public class DefaultMmapFile extends ReferenceResource implements MmapFile {
         int currentPos = this.wrotePosition.get();
 
         if ((currentPos + length) <= this.fileSize) {
+            // 创建新的字节缓冲区，用于存放数据
             ByteBuffer byteBuffer = this.mappedByteBuffer.slice();
+            // 新消息的起始位置
             byteBuffer.position(currentPos);
+            // 数据写入缓冲区中
             byteBuffer.put(data, offset, length);
+            // 更新已写入的最新 position
             this.wrotePosition.addAndGet(length);
             return true;
         }
@@ -348,6 +352,11 @@ public class DefaultMmapFile extends ReferenceResource implements MmapFile {
         return true;
     }
 
+    /**
+     * 文件物理删除
+     * @param intervalForcibly If {@code true} then this method will destroy the file forcibly and ignore the reference
+     * @return
+     */
     @Override
     public boolean destroy(final long intervalForcibly) {
         this.shutdown(intervalForcibly);

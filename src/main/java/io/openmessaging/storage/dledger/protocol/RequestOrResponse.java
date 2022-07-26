@@ -18,12 +18,30 @@ package io.openmessaging.storage.dledger.protocol;
 
 public class RequestOrResponse {
 
+    /**
+     * Raft 复制组所属组名
+     */
     protected String group;
+    /**
+     * 请求目标节点的id
+     */
     protected String remoteId;
+    /**
+     * 发起请求的节点ID
+     */
     protected String localId;
+    /**
+     * 返回相应码
+     */
     protected int code = DLedgerResponseCode.SUCCESS.getCode();
 
+    /**
+     * 集群中 Leader ID
+     */
     protected String leaderId = null;
+    /**
+     * 集群当前选举轮次
+     */
     protected long term = -1;
 
     public String getGroup() {

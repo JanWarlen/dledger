@@ -64,6 +64,9 @@ import org.apache.rocketmq.remoting.netty.NettyServerConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/**
+ * 基于 Raft 协议的集群内节点的封装类
+ */
 public class DLedgerServer implements DLedgerProtocolHandler {
 
     private static Logger logger = LoggerFactory.getLogger(DLedgerServer.class);
@@ -180,7 +183,7 @@ public class DLedgerServer implements DLedgerProtocolHandler {
      * 1.append the entry to local store
      * 2.submit the future to entry pusher and wait the quorum ack
      * 3.if the pending requests are full, then reject it immediately
-     *
+     * 处理日志写入请求入口
      * @param request
      * @return
      * @throws IOException
@@ -194,6 +197,8 @@ public class DLedgerServer implements DLedgerProtocolHandler {
             PreConditions.check(memberState.getTransferee() == null, DLedgerResponseCode.LEADER_TRANSFERRING);
             long currTerm = memberState.currTerm();
             if (dLedgerEntryPusher.isPendingFull(currTerm)) {
+                // Leader 收到的请求过多，排队等满了
+                // 请下次再来
                 AppendEntryResponse appendEntryResponse = new AppendEntryResponse();
                 appendEntryResponse.setGroup(memberState.getGroup());
                 appendEntryResponse.setCode(DLedgerResponseCode.LEADER_PENDING_FULL.getCode());
@@ -202,6 +207,7 @@ public class DLedgerServer implements DLedgerProtocolHandler {
                 return AppendFuture.newCompletedFuture(-1, appendEntryResponse);
             } else {
                 if (request instanceof BatchAppendEntryRequest) {
+                    // 批处理
                     BatchAppendEntryRequest batchRequest = (BatchAppendEntryRequest) request;
                     if (batchRequest.getBatchMsgs() != null && batchRequest.getBatchMsgs().size() != 0) {
                         // record positions to return;
@@ -213,6 +219,7 @@ public class DLedgerServer implements DLedgerProtocolHandler {
                         while (iterator.hasNext()) {
                             DLedgerEntry dLedgerEntry = new DLedgerEntry();
                             dLedgerEntry.setBody(iterator.next());
+                            // Leader 日志写入
                             resEntry = dLedgerStore.appendAsLeader(dLedgerEntry);
                             positions[index++] = resEntry.getPos();
                         }

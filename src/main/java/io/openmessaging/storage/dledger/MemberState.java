@@ -32,6 +32,10 @@ import static io.openmessaging.storage.dledger.MemberState.Role.CANDIDATE;
 import static io.openmessaging.storage.dledger.MemberState.Role.FOLLOWER;
 import static io.openmessaging.storage.dledger.MemberState.Role.LEADER;
 
+/**
+ * 节点状态机
+ * Raft 协议中 Follower/Candidate/Leader 三种状态的状态机实现
+ */
 public class MemberState {
 
     public static final String TERM_PERSIST_FILE = "currterm";

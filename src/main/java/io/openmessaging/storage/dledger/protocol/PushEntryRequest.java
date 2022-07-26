@@ -111,9 +111,21 @@ public class PushEntryRequest extends RequestOrResponse {
     }
 
     public enum Type {
+        /**
+         * 日志追加
+         */
         APPEND,
+        /**
+         * 通知从节点提交索引
+         */
         COMMIT,
+        /**
+         * 如果 Leader 节点发生变化，新的 Leader 节点需要与它的从节点日志进行比对，以保证数据一致
+         */
         COMPARE,
+        /**
+         * 比对完成后，发现数据不一致，则需要清除脏数据
+         */
         TRUNCATE
     }
 }

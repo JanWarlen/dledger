@@ -50,14 +50,29 @@ public class VoteResponse extends RequestOrResponse {
 
     public enum RESULT {
         UNKNOWN,
+        /**
+         * 赞成票
+         */
         ACCEPT,
         REJECT_UNKNOWN_LEADER,
         REJECT_UNEXPECTED_LEADER,
         REJECT_EXPIRED_VOTE_TERM,
+        /**
+         * 拒绝票，已经给其他节点投同意票
+         */
         REJECT_ALREADY_VOTED,
+        /**
+         * 拒绝票，因集群中已经存在Leader节点
+         */
         REJECT_ALREADY_HAS_LEADER,
         REJECT_TERM_NOT_READY,
+        /**
+         * 拒绝票，请求端的轮次大于投票端维护轮次
+         */
         REJECT_TERM_SMALL_THAN_LEDGER,
+        /**
+         * 拒绝票，投票轮次已经过期（不是最大值）
+         */
         REJECT_EXPIRED_LEDGER_TERM,
         REJECT_SMALL_LEDGER_END_INDEX,
         REJECT_TAKING_LEADERSHIP;

@@ -18,6 +18,10 @@ package io.openmessaging.storage.dledger.utils;
 
 public class Quota {
 
+    /**
+     * 1s 内推送的日志大小限额
+     * 默认 20MB，可通过 --peer-push-quotas 配置
+     */
     private final int max;
 
     private final int[] samples;
@@ -59,6 +63,10 @@ public class Quota {
 
     }
 
+    /**
+     * 1s 内推送的日志是否超过20MB，可通过 --peer-push-quotas 配置
+     * @return
+     */
     public boolean validateNow() {
         long timeMs = System.currentTimeMillis();
         int index = index(timeMs);
